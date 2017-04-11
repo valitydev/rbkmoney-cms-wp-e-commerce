@@ -9,6 +9,7 @@ class RBKmoneyPaymentVerification
     const OPENSSL_VERIFY_SIGNATURE_IS_CORRECT = 1;
     const OPENSSL_VERIFY_SIGNATURE_IS_INCORRECT = 0;
     const OPENSSL_VERIFY_ERROR = -1;
+
     public static function verification_signature($data = '', $signature = '', $public_key = '')
     {
         if (empty($data) || empty($signature) || empty($public_key)) {

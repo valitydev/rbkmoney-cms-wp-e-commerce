@@ -41,7 +41,7 @@ function gateway_rbkmoney_payment($separator, $sessionid)
         $form_path_logo = 'data-logo="' . trim(get_option('rbkmoney_payment_form_path_logo')).'"';
     }
 
-    $amount = number_format($purchase_log[0]['totalprice'], 2, '.', '');
+    $amount = number_format($purchase_log[0]['totalprice'], 2, '', '');
     $params = array(
         'shop_id' => trim(get_option('rbkmoney_payment_shop_id')),
         'currency' => $currency,
@@ -67,7 +67,7 @@ function gateway_rbkmoney_payment($separator, $sessionid)
             data-invoice-access-token="' . $invoice_access_token . '"
             data-endpoint-success="' . home_url('/?rbkmoney_payment_results') . '"
             data-endpoint-failed="' . home_url('/?rbkmoney_payment_results') . '"
-            data-amount="' . $amount . '"
+            data-amount="' . $purchase_log[0]['totalprice'] . '"
             data-currency="' . $currency . '"
             ' . $form_company_name . '
             ' . $form_path_logo . '
@@ -89,13 +89,25 @@ function nzshpcrt_rbkmoney_payment_callback()
     if (isset($_GET['rbkmoney_payment_callback'])) {
 
         if(empty($_SERVER[RBKmoneyPayment::SIGNATURE])) {
-            http_response_code(RBKmoneyPayment::HTTP_CODE_BAD_REQUEST);
-            exit();
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                'Отсутствует сигнатура'
+            );
         }
 
         $content = file_get_contents('php://input');
 
-        $required_fields = ['invoice_id', 'payment_id', 'amount', 'currency', 'created_at', 'metadata', 'status', 'session_id'];
+        $required_fields = [
+            RBKmoneyPayment::SHOP_ID,
+            RBKmoneyPayment::INVOICE_ID,
+            RBKmoneyPayment::PAYMENT_ID,
+            RBKmoneyPayment::AMOUNT,
+            RBKmoneyPayment::CURRENCY,
+            RBKmoneyPayment::CREATED_AT,
+            RBKmoneyPayment::METADATA,
+            RBKmoneyPayment::STATUS,
+            RBKmoneyPayment::EVENT_TYPE,
+        ];
         $data = json_decode($content, TRUE);
         foreach ($required_fields as $field) {
             if (empty($data[$field])) {
@@ -103,28 +115,47 @@ function nzshpcrt_rbkmoney_payment_callback()
                 exit();
             }
         }
-        if (empty($data[RBKmoneyPayment::METADATA][RBKmoneyPayment::ORDER_ID])) {
-            http_response_code(RBKmoneyPayment::HTTP_CODE_BAD_REQUEST);
-            exit();
-        }
-        if (!$signature = base64_decode($_SERVER[RBKmoneyPayment::SIGNATURE], TRUE)) {
-            http_response_code(RBKmoneyPayment::HTTP_CODE_BAD_REQUEST);
-            exit();
+
+        $current_shop_id = trim(get_option('rbkmoney_payment_shop_id'));
+        if($current_shop_id != $data[RBKmoneyPayment::SHOP_ID]) {
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                RBKmoneyPayment::SHOP_ID . ' не совпадает с указанным в настройках магазина'
+            );
         }
 
+        if (empty($data[RBKmoneyPayment::METADATA][RBKmoneyPayment::ORDER_ID])) {
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                RBKmoneyPayment::ORDER_ID . ' не обнаружен в ' . RBKmoneyPayment::METADATA
+            );
+        }
+
+        if (empty($data[RBKmoneyPayment::METADATA][RBKmoneyPayment::SESSION_ID])) {
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                RBKmoneyPayment::SESSION_ID . ' не обнаружен в ' . RBKmoneyPayment::METADATA
+            );
+        }
+
+        $signature = base64_decode($_SERVER[RBKmoneyPayment::SIGNATURE], TRUE);
         if (!RBKmoneyPaymentVerification::verification_signature($content, $signature, trim(get_option('rbkmoney_payment_callback_public_key')))) {
-            http_response_code(RBKmoneyPayment::HTTP_CODE_BAD_REQUEST);
-            exit();
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                'Сигнатура не совпадает'
+            );
         }
 
         $purchase_log_sql = $wpdb->prepare( "SELECT * FROM `".WPSC_TABLE_PURCHASE_LOGS."` WHERE `id`= %s AND `sessionid`= %s LIMIT 1",
             $data[RBKmoneyPayment::METADATA][RBKmoneyPayment::ORDER_ID],
             $data[RBKmoneyPayment::METADATA][RBKmoneyPayment::SESSION_ID]
         );
-        $purchase_log = $wpdb->get_results($purchase_log_sql,ARRAY_A);
+        $purchase_log = $wpdb->get_results($purchase_log_sql, ARRAY_A);
         if(empty($purchase_log)) {
-            http_response_code(RBKmoneyPayment::HTTP_CODE_BAD_REQUEST);
-            exit();
+            _rbkmoney_payment_response_with_code_and_message(
+                RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
+                RBKmoneyPayment::SESSION_ID . ' не найдена в базе данных'
+            );
         }
 
         $all_statuses = array(
@@ -136,17 +167,55 @@ function nzshpcrt_rbkmoney_payment_callback()
             '6' => 'rejected',
         );
 
-        if($data[RBKmoneyPayment::STATUS] == 'paid') {
+        if(in_array($purchase_log[0]['processed'], array_search('pending', $all_statuses))) {
+
+            $processed = array_search('pending', $all_statuses);
             $details = array(
-                'processed'  => array_search('ok', $all_statuses),
+                'processed'  => $processed,
                 'transactid' => $data[RBKmoneyPayment::INVOICE_ID],
                 'date'       => time(),
             );
             $session_id = $data[RBKmoneyPayment::METADATA][RBKmoneyPayment::SESSION_ID];
-            wpsc_update_purchase_log_details( $session_id, $details, 'sessionid' );
-            transaction_results($session_id, false, $data[RBKmoneyPayment::INVOICE_ID]);
+
+            switch ($data[RBKmoneyPayment::STATUS]) {
+                case 'paid':
+                    $details['processed'] = array_search('ok', $all_statuses);
+                    wpsc_update_purchase_log_details( $session_id, $details, 'sessionid' );
+                    transaction_results($session_id, false, $data[RBKmoneyPayment::INVOICE_ID]);
+                    break;
+                case 'cancelled':
+                    $details['processed'] = array_search('closed', $all_statuses);
+                    wpsc_update_purchase_log_details( $session_id, $details, 'sessionid' );
+                    transaction_results($session_id, false, $data[RBKmoneyPayment::INVOICE_ID]);
+                    break;
+                default:
+                    // The default action is not needed if a status has come that does not interest us
+                    break;
+            }
+
         }
+
+        _rbkmoney_payment_response_with_code_and_message(
+            RBKmoneyPayment::HTTP_CODE_OK,
+            'OK'
+        );
     }
+}
+
+/**
+ * Helper function for response with http code and message
+ *
+ * @param $code (e.g. 200)
+ * @param $message (e.g. OK)
+ */
+function _rbkmoney_payment_response_with_code_and_message($code, $message)
+{
+    $response = array(
+        'message' => $message
+    );
+    http_response_code($code);
+    echo json_encode($response);
+    exit();
 }
 
 /**
@@ -171,7 +240,6 @@ function submit_rbkmoney_payment()
         'rbkmoney_payment_shop_id',
         'rbkmoney_payment_form_path_logo',
         'rbkmoney_payment_form_company_name',
-        'rbkmoney_payment_logs',
     );
     _rbkmoney_payment_update_options($text_fields, 'text');
 
@@ -260,25 +328,6 @@ function form_rbkmoney_payment()
 					" . __('This address is to be inserted in a private office RBKmoney', 'wp-e-commerce') . "
 				</p>
 		</tr>";
-
-    $selected = (get_option('rbkmoney_payment_logs') == 'on') ? 'checked="checked"' : '';
-    $output .= "<tr>
-			<td>" . __('Enable logs:', 'wp-e-commerce') . "</td>
-			<td>
-			    <input type='hidden' name='rbkmoney_payment_logs' value='off' />
-				<label for='rbkmoney_payment_logs'>
-				 <input type='checkbox' name='rbkmoney_payment_logs' id='rbkmoney_payment_logs' value='on' " . $selected . "' />
-				</label>
-				<p class='description'>
-					" . __('Enable logs?', 'wp-e-commerce') . "
-				</p>
-		</tr>
-		</tr>
-		   <tr>
-           <td colspan='2'>
-           	" . sprintf(__('For more help configuring RBKmoney, read our documentation <a href="%s">here</a>', 'wp-e-commerce'), esc_url('https://rbkmoney.github.io/docs/')) . "
-           </td>
-       </tr>";
 
     return $output;
 }

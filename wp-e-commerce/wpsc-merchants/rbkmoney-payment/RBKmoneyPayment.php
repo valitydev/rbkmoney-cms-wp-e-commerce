@@ -27,6 +27,7 @@ class RBKmoneyPayment
     /**
      * Constants for Callback
      */
+    const SHOP_ID = 'shop_id';
     const INVOICE_ID = 'invoice_id';
     const PAYMENT_ID = 'payment_id';
     const AMOUNT = 'amount';
@@ -37,6 +38,7 @@ class RBKmoneyPayment
     const SIGNATURE = 'HTTP_X_SIGNATURE';
     const ORDER_ID = 'order_id';
     const SESSION_ID = 'session_id';
+    const EVENT_TYPE = 'event_type';
 
     private $api_url = 'https://api.rbk.money/v1/';
 
@@ -46,8 +48,8 @@ class RBKmoneyPayment
     private $product = '';
     private $description = '';
     private $amount = 0;
-    private $order_id;
-    private $session_id;
+    private $order_id = '';
+    private $session_id = '';
 
     protected $errors = array();
 
@@ -61,7 +63,7 @@ class RBKmoneyPayment
     public function setApiUrl($api_url)
     {
         if (filter_var($api_url, FILTER_VALIDATE_URL) === false) {
-            $this->setErrors($api_url . ' is not a valid URL');
+            $this->setErrors($api_url . ' не валидный URL');
         }
         $this->api_url = $api_url;
     }
@@ -124,7 +126,7 @@ class RBKmoneyPayment
     public function setAmount($amount)
     {
         if (!is_numeric($amount)) {
-            throw new Exception($amount . ' no a numeric');
+            throw new Exception($amount . ' не является числом');
         }
         $this->amount = $amount;
     }
@@ -214,7 +216,7 @@ class RBKmoneyPayment
                 $value = $this->$method();
                 if (empty($value)) $this->setErrors('<b>' . $field . '</b> is required');
             } else {
-                $this->setErrors($field . ' method not found');
+                $this->setErrors($field . ' метод не найден');
             }
         }
     }
@@ -234,17 +236,6 @@ class RBKmoneyPayment
             'order_id' => $order_id,
             'session_id' => $session_id,
         ];
-    }
-
-    /**
-     * Prepare amount (e.g. 124.24 -> 12424)
-     *
-     * @param $amount int
-     * @return int
-     */
-    private function prepare_amount($amount)
-    {
-        return $amount * 100;
     }
 
     private function prepare_api_url($path = '', $query_params = [])
@@ -277,17 +268,18 @@ class RBKmoneyPayment
 
         $data = [
             'shopID' => (int)$this->shop_id,
-            'amount' => $this->prepare_amount($this->amount),
+            'amount' => (int)$this->amount,
             'metadata' => $this->prepare_metadata($this->order_id, $this->session_id),
             'dueDate' => $this->prepare_due_date(),
             'currency' => $this->currency,
             'product' => $this->product,
             'description' => $this->description,
         ];
+
+
         $this->validate();
         $url = $this->prepare_api_url('processing/invoices');
         $response =  $this->send($url, static::HTTP_METHOD_POST, $headers, json_encode($data, true));
-
         $response_decode = json_decode($response['body'], true);
         $invoice_id = !empty($response_decode['id']) ? $response_decode['id'] : '';
         return $invoice_id;
@@ -323,7 +315,7 @@ class RBKmoneyPayment
 
         $allowed_methods = [static::HTTP_METHOD_POST, static::HTTP_METHOD_GET];
         if (!in_array($method, $allowed_methods)) {
-            throw new Exception('Unsupported method ' . $method);
+            throw new Exception('Неподдерживаемый метод ' . $method);
         }
 
         $curl = curl_init($url);
