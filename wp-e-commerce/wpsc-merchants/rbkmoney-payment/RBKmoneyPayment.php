@@ -27,15 +27,8 @@ class RBKmoneyPayment
     /**
      * Constants for Callback
      */
-    const SHOP_ID = 'shop_id';
-    const INVOICE_ID = 'invoice_id';
-    const PAYMENT_ID = 'payment_id';
-    const AMOUNT = 'amount';
-    const CURRENCY = 'currency';
-    const CREATED_AT = 'created_at';
+    const SHOP_ID = 'shopID';
     const METADATA = 'metadata';
-    const STATUS = 'status';
-    const SIGNATURE = 'HTTP_X_SIGNATURE';
     const ORDER_ID = 'order_id';
     const SESSION_ID = 'session_id';
     const EVENT_TYPE = 'event_type';
@@ -260,29 +253,32 @@ class RBKmoneyPayment
             'description',
         ]);
 
+        $data = [
+            'shopID' => (int)$this->getShopId(),
+            'amount' => (int)$this->getAmount(),
+            'metadata' => $this->prepare_metadata($this->getOrderId(), $this->getSessionId()),
+            'dueDate' => $this->prepare_due_date(),
+            'currency' => $this->getCurrency(),
+            'product' => $this->getProduct(),
+            'description' => $this->getDescription(),
+        ];
+
+        $this->validate();
+        $url = $this->prepare_api_url('processing/invoices');
+        $headers = $this->headers();
+        $response =  $this->send($url, static::HTTP_METHOD_POST, $headers, json_encode($data, true));
+        $response_decode = json_decode($response['body'], true);
+        $invoice_id = !empty($response_decode['id']) ? $response_decode['id'] : '';
+        return $invoice_id;
+    }
+
+    private function headers() {
         $headers = [];
         $headers[] = 'X-Request-ID: ' . uniqid();
         $headers[] = 'Authorization: Bearer ' . $this->merchant_private_key;
         $headers[] = 'Content-type: application/json; charset=utf-8';
         $headers[] = 'Accept: application/json';
-
-        $data = [
-            'shopID' => (int)$this->shop_id,
-            'amount' => (int)$this->amount,
-            'metadata' => $this->prepare_metadata($this->order_id, $this->session_id),
-            'dueDate' => $this->prepare_due_date(),
-            'currency' => $this->currency,
-            'product' => $this->product,
-            'description' => $this->description,
-        ];
-
-
-        $this->validate();
-        $url = $this->prepare_api_url('processing/invoices');
-        $response =  $this->send($url, static::HTTP_METHOD_POST, $headers, json_encode($data, true));
-        $response_decode = json_decode($response['body'], true);
-        $invoice_id = !empty($response_decode['id']) ? $response_decode['id'] : '';
-        return $invoice_id;
+        return $headers;
     }
 
     public function create_access_token($invoice_id)
@@ -290,13 +286,9 @@ class RBKmoneyPayment
         if (empty($invoice_id)) {
             throw new Exception('Не передан обязательный параметр invoice_id');
         }
-        $headers = [];
-        $headers[] = 'X-Request-ID: ' . uniqid();
-        $headers[] = 'Authorization: Bearer ' . $this->merchant_private_key;
-        $headers[] = 'Content-type: application/json; charset=utf-8';
-        $headers[] = 'Accept: application/json';
 
         $url = $this->prepare_api_url('processing/invoices/' . $invoice_id . '/access_tokens');
+        $headers = $this->headers();
         $response = $this->send($url, static::HTTP_METHOD_POST, $headers);
 
         if ($response['http_code'] != static::HTTP_CODE_CREATED) {
@@ -313,16 +305,14 @@ class RBKmoneyPayment
             throw new Exception('Не передан обязательный параметр url');
         }
 
-        $allowed_methods = [static::HTTP_METHOD_POST, static::HTTP_METHOD_GET];
+        $allowed_methods = [static::HTTP_METHOD_POST];
         if (!in_array($method, $allowed_methods)) {
             throw new Exception('Неподдерживаемый метод ' . $method);
         }
 
         $curl = curl_init($url);
-        if ($method == static::HTTP_METHOD_POST) {
-            curl_setopt($curl, CURLOPT_POST, TRUE);
-            curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
-        }
+        curl_setopt($curl, CURLOPT_POST, TRUE);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, $data);
         curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, FALSE);
         curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, FALSE);
         curl_setopt($curl, CURLOPT_RETURNTRANSFER, TRUE);
