@@ -1,7 +1,13 @@
 <?php
 /**
- * Common settings
- */
+ * Plugin Name: RBKmoney Payment Gateway for e-commerce
+ * Plugin URI: https://www.rbk.money
+ * Description: A plugin for RBKmoney Payment in e-commerce
+ * Version: 1.0
+ * Author: RBKmoney
+ * Author URI: https://www.rbk.money
+ **/
+
 $nzshpcrt_gateways[$num]['name'] = __('RBKmoney', 'wp-e-commerce');
 $nzshpcrt_gateways[$num]['internalname'] = 'rbkmoney';
 $nzshpcrt_gateways[$num]['function'] = 'gateway_rbkmoney_payment';
@@ -9,7 +15,7 @@ $nzshpcrt_gateways[$num]['form'] = "form_rbkmoney_payment";
 $nzshpcrt_gateways[$num]['submit_function'] = "submit_rbkmoney_payment";
 $nzshpcrt_gateways[$num]['payment_type'] = "rbkmoney";
 $nzshpcrt_gateways[$num]['display_name'] = __('RBKmoney', 'wp-e-commerce');
-$nzshpcrt_gateways[$num]['image'] = WPSC_URL . '/images/rbkmoney_payment.png';
+$nzshpcrt_gateways[$num]['image'] = plugins_url( '', __FILE__ ) . '/rbkmoney-payment/images/rbkmoney_payment.png';
 
 
 require 'rbkmoney-payment/RBKmoneyPayment.php';
@@ -78,7 +84,8 @@ function gateway_rbkmoney_payment($separator, $sessionid)
     	<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     </head>
     <body>
-    <form action="' . home_url('/?rbkmoney_payment_results') . '" method="' . HTTP_METHOD_POST . '">
+    <form action="' . home_url('/?rbkmoney_payment_results') . '" method="GET">
+        <input type="hidden" name="rbkmoney_payment_results" value="true">
         <script src="https://checkout.rbk.money/checkout.js" class="rbkmoney-checkout"
                           data-invoice-id="' . $invoice_id . '"
                           data-invoice-access-token="' . $invoice_access_token . '"
@@ -262,6 +269,7 @@ function _rbkmoney_payment_response_with_code_and_message($code, $message)
  * e.g. http{s}://{your-site}/?rbkmoney_payment_results
  */
 function nzshpcrt_rbkmoney_payment_results()
+
 {
     if (isset($_GET['rbkmoney_payment_results'])) {
         header('Location: ' . get_option('transact_url'), true, RBKmoneyPayment::HTTP_CODE_MOVED_PERMANENTLY);
