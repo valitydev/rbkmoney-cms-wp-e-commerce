@@ -33,7 +33,7 @@ class RBKmoneyPayment
     const SESSION_ID = 'session_id';
     const EVENT_TYPE = 'event_type';
 
-    private $api_url = 'https://api.rbk.money/v1/';
+    private $api_url = 'https://api.rbk.money/v2/';
 
     private $merchant_private_key = '';
     private $shop_id = '';
@@ -254,7 +254,7 @@ class RBKmoneyPayment
         ]);
 
         $data = [
-            'shopID' => (int)$this->getShopId(),
+            'shopID' => $this->getShopId(),
             'amount' => (int)$this->getAmount(),
             'metadata' => $this->prepare_metadata($this->getOrderId(), $this->getSessionId()),
             'dueDate' => $this->prepare_due_date(),
@@ -263,14 +263,18 @@ class RBKmoneyPayment
             'description' => $this->getDescription(),
         ];
 
+
         $this->validate();
         $url = $this->prepare_api_url('processing/invoices');
         $headers = $this->headers();
         $response =  $this->send($url, static::HTTP_METHOD_POST, $headers, json_encode($data, true));
         $response_decode = json_decode($response['body'], true);
-        $invoice_id = !empty($response_decode['id']) ? $response_decode['id'] : '';
-        return $invoice_id;
+        $invoice_id = !empty($response_decode['invoice']['id']) ? $response_decode['invoice']['id'] : '';
+        $access_token = !empty($response_decode['invoiceAccessToken']['payload']) ? $response_decode['invoiceAccessToken']['payload'] : '';
+        return $response;
     }
+
+
 
     private function headers() {
         $headers = [];
@@ -281,24 +285,7 @@ class RBKmoneyPayment
         return $headers;
     }
 
-    public function create_access_token($invoice_id)
-    {
-        if (empty($invoice_id)) {
-            throw new Exception('Не передан обязательный параметр invoice_id');
-        }
-
-        $url = $this->prepare_api_url('processing/invoices/' . $invoice_id . '/access_tokens');
-        $headers = $this->headers();
-        $response = $this->send($url, static::HTTP_METHOD_POST, $headers);
-
-        if ($response['http_code'] != static::HTTP_CODE_CREATED) {
-            throw new Exception('Возникла ошибка при создании токена для инвойса');
-        }
-        $response_decode = json_decode($response['body'], true);
-        $access_token = !empty($response_decode['payload']) ? $response_decode['payload'] : '';
-        return $access_token;
-    }
-
+  
     private function send($url, $method, $headers = [], $data = '')
     {
         if (empty($url)) {

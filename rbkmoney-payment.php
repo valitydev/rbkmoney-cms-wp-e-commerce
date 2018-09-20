@@ -72,12 +72,16 @@ function gateway_rbkmoney_payment($separator, $sessionid)
 
     try {
         $rbk_api = new RBKmoneyPayment($params);
-        $invoice_id = $rbk_api->create_invoice();
-        $invoice_access_token = $rbk_api->create_access_token($invoice_id);
+        $response = $rbk_api->create_invoice();
+        $response_decode = json_decode($response['body'], true);
+        $invoice_id = !empty($response_decode['invoice']['id']) ? $response_decode['invoice']['id'] : '';
+        $invoice_access_token = !empty($response_decode['invoiceAccessToken']['payload']) ? $response_decode['invoiceAccessToken']['payload'] : '';
     } catch (Exception $ex) {
         echo $ex->getMessage();
         exit();
     }
+
+    
 
     $output = '<html>
     <head>
@@ -90,16 +94,15 @@ function gateway_rbkmoney_payment($separator, $sessionid)
                           data-invoice-id="' . $invoice_id . '"
                           data-invoice-access-token="' . $invoice_access_token . '"
                           ' . $company_name . '
-                          ' . $company_logo . '
                           ' . $button_label . '
                           ' . $description . '
                           >
                   </script>
     </form></body></html>';
-
     echo $output;
     exit();
 }
+
 
 
 /**
@@ -158,7 +161,7 @@ function nzshpcrt_rbkmoney_payment_callback()
             }
         }
 
-        $current_shop_id = (int)trim(get_option('rbkmoney_payment_shop_id'));
+        $current_shop_id = trim(get_option('rbkmoney_payment_shop_id'));
         if ($current_shop_id != $data[$invoice][RBKmoneyPayment::SHOP_ID]) {
             _rbkmoney_payment_response_with_code_and_message(
                 RBKmoneyPayment::HTTP_CODE_BAD_REQUEST,
@@ -337,14 +340,7 @@ function form_rbkmoney_payment()
 				</p>
 			</td>
 		</tr>
-		<tr>
-			<td>" . __('Logo in payment form', 'wp-e-commerce') . "</td>
-			<td>
-				<input type='text' size='60' value='" . trim(get_option('rbkmoney_payment_form_path_logo')) . "' name='rbkmoney_payment_form_path_logo' />
-				<p class='description'>
-					" . __('Your logo for payment form', 'wp-e-commerce') . "
-				</p>
-		</tr>
+		
 		<tr>
 			<td>" . __('Company name in payment form', 'wp-e-commerce') . "</td>
 			<td>
